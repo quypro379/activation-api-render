@@ -89,7 +89,7 @@ def activate_key():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/verify', methods=['POST'])  # Thêm route verify
+@app.route('/verify', methods=['POST'])
 def verify_key():
     try:
         data = request.json
@@ -99,31 +99,26 @@ def verify_key():
         if not key or not hardware_id:
             return jsonify({"valid": False, "message": "Thiếu key hoặc hardware_id"}), 400
 
-        _, license_data = get_license_doc(key)
+        doc_ref, license_data = get_license_doc(key)
         if not license_data:
             return jsonify({"valid": False, "message": "Key không hợp lệ"}), 404
 
-        # So khớp hardware_id
-        if license_data['hardware_id'] and license_data['hardware_id'] != hardware_id:
-            return jsonify({"valid": False, "message": "Key này đã dùng cho máy khác"}), 403
+        # Kiểm tra hardware_id khớp
+        if license_data.get('hardware_id') != hardware_id:
+            return jsonify({"valid": False, "message": "Key đã dùng trên máy khác"}), 403
 
-        now = datetime.utcnow().replace(tzinfo=pytz.UTC)
+        # Kiểm tra thời hạn
+        now = datetime.now(pytz.UTC)
         expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
-
+        
         if expires_at < now and license_data.get('license_type') != 'lifetime':
-            return jsonify({"valid": False, "message": "Key đã hết hạn"}), 403
+            return jsonify({"valid": False, "message": f"Key hết hạn từ {expires_at.strftime('%d/%m/%Y')}"}), 403
 
         return jsonify({
             "valid": True,
-            "license_type": license_data['license_type'],
+            "license_type": license_data.get('license_type'),
             "expires_at": license_data['expires_at']
         }), 200
+
     except Exception as e:
-        return jsonify({"valid": False, "message": str(e)}), 500
-
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({"message": "API is running"}), 200
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+        return jsonify({"valid": False, "message": f"Lỗi server: {str(e)}"}), 500
