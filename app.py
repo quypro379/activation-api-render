@@ -1,46 +1,64 @@
 from flask import Flask, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime, timedelta  # Thêm timedelta vào import
+from datetime import datetime, timedelta
 import pytz
+from flask_cors import CORS
+import logging
 
+# Khởi tạo Flask app
 app = Flask(__name__)
+CORS(app)  # Cho phép CORS nếu client và server khác domain
 
-# ✅ Khởi tạo Firestore
+# Cấu hình logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("LicenseAPI")
+
+# Khởi tạo Firebase
 cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
 def get_license_doc(key):
+    """Lấy document license từ Firestore"""
     doc_ref = db.collection('licenses').document(key)
     doc = doc_ref.get()
     return doc_ref, doc.to_dict() if doc.exists else None
 
 @app.route('/wakeup', methods=['GET'])
 def wakeup():
-    return jsonify({"status": "ok", "message": "Server is awake"}), 200
+    """Endpoint đánh thức server"""
+    return jsonify({"status": "active", "message": "Server is ready"}), 200
 
 @app.route('/activate', methods=['POST'])
 def activate_key():
+    """Endpoint kích hoạt license key"""
     try:
+        logger.debug("Nhận yêu cầu kích hoạt: %s", request.json)
+        
         data = request.json
         key = data.get('key')
         hardware_id = data.get('hardware_id')
 
-        if not key or not hardware_id:
-            return jsonify({"success": False, "error": "Thiếu key hoặc hardware_id"}), 400
+        # Validate input
+        if not key or len(key) != 12 or not key.isdigit():
+            return jsonify({"success": False, "error": "Mã kích hoạt phải có đúng 12 chữ số"}), 400
+            
+        if not hardware_id:
+            return jsonify({"success": False, "error": "Thiếu hardware_id"}), 400
 
         doc_ref, license_data = get_license_doc(key)
         if not license_data:
-            return jsonify({"success": False, "error": "Key không hợp lệ"}), 404
+            return jsonify({"success": False, "error": "Mã kích hoạt không tồn tại"}), 404
 
-        # Kiểm tra nếu key đã được kích hoạt
+        now = datetime.now(pytz.UTC)
+        
+        # Xử lý license đã kích hoạt trước đó
         if license_data.get('activated_at'):
-            # Nếu đã kích hoạt rồi thì kiểm tra hardware_id
             if license_data['hardware_id'] != hardware_id:
-                return jsonify({"success": False, "error": "Key này đã được kích hoạt trên máy khác"}), 403
+                return jsonify({"success": False, "error": "Mã này đã được kích hoạt trên máy khác"}), 403
             
-            # Nếu là license vĩnh viễn
+            # License vĩnh viễn
             if license_data.get('license_type') == 'lifetime':
                 return jsonify({
                     "success": True,
@@ -49,76 +67,99 @@ def activate_key():
                     "activated_at": license_data['activated_at']
                 }), 200
             
-            # Tính thời gian còn lại từ lần kích hoạt đầu tiên
-            activated_at = datetime.fromisoformat(license_data['activated_at']).replace(tzinfo=pytz.UTC)
+            # Kiểm tra thời hạn
             expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
-            
-            # Thời gian còn lại = expires_at - (now - activated_at)
-            remaining = expires_at - (datetime.utcnow().replace(tzinfo=pytz.UTC) - activated_at)
-            
+            if expires_at < now:
+                return jsonify({"success": False, "error": "License đã hết hạn"}), 403
+                
             return jsonify({
                 "success": True,
                 "license_type": license_data['license_type'],
-                "expires_at": (datetime.utcnow().replace(tzinfo=pytz.UTC) + remaining).isoformat(),
+                "expires_at": license_data['expires_at'],
                 "activated_at": license_data['activated_at']
             }), 200
+        
+        # Xử lý license mới
+        if license_data.get('license_type') == 'lifetime':
+            expires_at = datetime.fromisoformat(license_data['expires_at'])
         else:
-            # Nếu chưa kích hoạt thì tạo mới thời gian
-            now = datetime.utcnow().replace(tzinfo=pytz.UTC)
-            
-            # Xử lý license vĩnh viễn
-            if license_data.get('license_type') == 'lifetime':
-                expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
-            else:
-                expires_at = now + timedelta(days=license_data['duration_days'])
-            
-            # Cập nhật thời gian kích hoạt và hết hạn
-            doc_ref.update({
-                "hardware_id": hardware_id,
-                "activated_at": now.isoformat(),
-                "expires_at": expires_at.isoformat()
-            })
-            
-            return jsonify({
-                "success": True,
-                "license_type": license_data['license_type'],
-                "expires_at": expires_at.isoformat(),
-                "activated_at": now.isoformat()
-            }), 200
-            
+            expires_at = now + timedelta(days=license_data['duration_days'])
+
+        # Cập nhật Firestore
+        update_data = {
+            'hardware_id': hardware_id,
+            'activated_at': now.isoformat(),
+            'expires_at': expires_at.isoformat()
+        }
+        doc_ref.update(update_data)
+        
+        logger.info("Kích hoạt thành công cho key: %s", key)
+        
+        return jsonify({
+            "success": True,
+            "license_type": license_data['license_type'],
+            "expires_at": expires_at.isoformat(),
+            "activated_at": now.isoformat()
+        }), 200
+
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
+        logger.error("Lỗi kích hoạt: %s", str(e))
+        return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
 
 @app.route('/verify', methods=['POST'])
 def verify_key():
+    """Endpoint xác thực license"""
     try:
         data = request.json
         key = data.get('key')
         hardware_id = data.get('hardware_id')
 
         if not key or not hardware_id:
-            return jsonify({"valid": False, "message": "Thiếu key hoặc hardware_id"}), 400
+            return jsonify({"valid": False, "message": "Thiếu thông tin key hoặc hardware_id"}), 400
 
-        doc_ref, license_data = get_license_doc(key)
+        _, license_data = get_license_doc(key)
         if not license_data:
             return jsonify({"valid": False, "message": "Key không hợp lệ"}), 404
 
-        # Kiểm tra hardware_id khớp
+        # Kiểm tra hardware_id
         if license_data.get('hardware_id') != hardware_id:
-            return jsonify({"valid": False, "message": "Key đã dùng trên máy khác"}), 403
+            return jsonify({"valid": False, "message": "Key đã được sử dụng trên thiết bị khác"}), 403
+
+        now = datetime.now(pytz.UTC)
+        
+        # License vĩnh viễn
+        if license_data.get('license_type') == 'lifetime':
+            return jsonify({
+                "valid": True,
+                "license_type": "lifetime",
+                "expires_at": license_data['expires_at']
+            }), 200
 
         # Kiểm tra thời hạn
-        now = datetime.now(pytz.UTC)
         expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
-        
-        if expires_at < now and license_data.get('license_type') != 'lifetime':
-            return jsonify({"valid": False, "message": f"Key hết hạn từ {expires_at.strftime('%d/%m/%Y')}"}), 403
+        if expires_at < now:
+            return jsonify({"valid": False, "message": "License đã hết hạn"}), 403
 
         return jsonify({
             "valid": True,
-            "license_type": license_data.get('license_type'),
+            "license_type": license_data['license_type'],
             "expires_at": license_data['expires_at']
         }), 200
 
     except Exception as e:
-        return jsonify({"valid": False, "message": f"Lỗi server: {str(e)}"}), 500
+        logger.error("Lỗi xác thực: %s", str(e))
+        return jsonify({"valid": False, "message": "Lỗi hệ thống"}), 500
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "status": "running",
+        "endpoints": {
+            "activate": "/activate (POST)",
+            "verify": "/verify (POST)",
+            "wakeup": "/wakeup (GET)"
+        }
+    }), 200
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
