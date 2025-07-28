@@ -54,11 +54,16 @@ def activate_key():
                     "success": False, 
                     "error": "Mã này đã được kích hoạt trên thiết bị khác"
                 }), 403
+            
+            # Chuyển đổi datetime thành string trước khi trả về
+            expires_at = license_data['expires_at'].isoformat() if hasattr(license_data['expires_at'], 'isoformat') else license_data['expires_at']
+            activated_at = license_data['activated_at'].isoformat() if hasattr(license_data['activated_at'], 'isoformat') else license_data['activated_at']
+            
             return jsonify({
                 "success": True,
                 "license_type": license_data['license_type'],
-                "expires_at": license_data['expires_at'],
-                "activated_at": license_data['activated_at']
+                "expires_at": expires_at,
+                "activated_at": activated_at
             }), 200
         
         # Xử lý license mới
@@ -71,7 +76,7 @@ def activate_key():
         # Cập nhật Firestore
         update_data = {
             'hardware_id': hardware_id,
-            'activated_at': now.isoformat(),
+            'activated_at': now,
             'expires_at': expires_at
         }
         doc_ref.update(update_data)
