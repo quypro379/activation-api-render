@@ -49,15 +49,28 @@ def activate_key():
         
         # Xử lý license đã kích hoạt
         if license_data.get('activated_at'):
+            # Chuyển đổi tất cả datetime/timestamp về string ISO format
+            expires_at = license_data['expires_at']
+            activated_at = license_data['activated_at']
+            
+            # Nếu là Firestore Timestamp
+            if hasattr(expires_at, 'isoformat'):
+                expires_at = expires_at.isoformat()
+            elif hasattr(expires_at, 'strftime'):
+                expires_at = expires_at.strftime('%Y-%m-%dT%H:%M:%S%z')
+                
+            if hasattr(activated_at, 'isoformat'):
+                activated_at = activated_at.isoformat()
+            elif hasattr(activated_at, 'strftime'):
+                activated_at = activated_at.strftime('%Y-%m-%dT%H:%M:%S%z')
+
             if license_data['hardware_id'] != hardware_id:
                 return jsonify({
                     "success": False, 
-                    "error": "Mã này đã được kích hoạt trên thiết bị khác"
+                    "error": "Mã này đã được kích hoạt trên thiết bị khác",
+                    "expires_at": expires_at,
+                    "activated_at": activated_at
                 }), 403
-            
-            # Chuyển đổi datetime thành string trước khi trả về
-            expires_at = license_data['expires_at'].isoformat() if hasattr(license_data['expires_at'], 'isoformat') else license_data['expires_at']
-            activated_at = license_data['activated_at'].isoformat() if hasattr(license_data['activated_at'], 'isoformat') else license_data['activated_at']
             
             return jsonify({
                 "success": True,
@@ -73,10 +86,10 @@ def activate_key():
             duration_days = int(license_data.get('duration_days', 0))
             expires_at = (now + timedelta(days=duration_days)).isoformat()
 
-        # Cập nhật Firestore
+        # Cập nhật Firestore - sử dụng firestore.SERVER_TIMESTAMP cho thời gian
         update_data = {
             'hardware_id': hardware_id,
-            'activated_at': now,
+            'activated_at': firestore.SERVER_TIMESTAMP,
             'expires_at': expires_at
         }
         doc_ref.update(update_data)
@@ -85,11 +98,11 @@ def activate_key():
             "success": True,
             "license_type": license_data['license_type'],
             "expires_at": expires_at,
-            "activated_at": now.isoformat()
+            "activated_at': now.isoformat()
         }), 200
 
     except Exception as e:
-        logger.error(f"Lỗi kích hoạt: {str(e)}")
+        logger.error(f"Lỗi kích hoạt: {str(e)}", exc_info=True)
         return jsonify({
             "success": False, 
             "error": "Lỗi hệ thống",
