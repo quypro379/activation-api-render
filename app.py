@@ -68,13 +68,16 @@ def activate_key():
             }), 200
 
         # Kích hoạt mới
-        duration = license_data.get('duration_days')
-        if duration is None:
-            duration = 30  # Giá trị mặc định nếu thiếu
-        
-        expires_at = (datetime.fromisoformat(license_data['expires_at'])
-                     if license_data.get('license_type') == 'lifetime'
-                     else now + timedelta(days=int(duration)))
+# Xử lý expires_at dựa trên loại license
+        if license_data.get('license_type') == 'lifetime':
+            expires_at = datetime.fromisoformat(license_data['expires_at'])
+        else:
+            try:
+                duration_days = int(license_data.get('duration_days', 30))  # mặc định 30 ngày nếu thiếu
+            except ValueError:
+                duration_days = 30
+            expires_at = now + timedelta(days=duration_days)
+
 
 
         update_data = {
