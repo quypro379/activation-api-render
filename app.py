@@ -146,6 +146,22 @@ def verify_key():
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
+@app.route('/time', methods=['GET'])
+def get_server_time():
+    """
+    Trả về giờ hiện tại của server (múi giờ Việt Nam).
+    Client dùng để xác minh thời gian thực.
+    """
+    try:
+        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
+        return jsonify({
+            "success": True,
+            "server_time": now.isoformat()
+        }), 200
+    except Exception as e:
+        logger.error(f"Lỗi khi trả về giờ server: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": "Không lấy được giờ server"}), 500
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
