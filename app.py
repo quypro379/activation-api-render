@@ -124,6 +124,7 @@ def verify_key():
 
         return jsonify({
             "success": True,
+            "valid": True,  # Thêm trường này để client kiểm tra
             "license_type": license_data.get('license_type', 'standard'),
             "expires_at": license_data['expires_at'],
             "activated_at": license_data['activated_at']
