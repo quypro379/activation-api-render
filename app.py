@@ -59,13 +59,16 @@ def activate_key():
         if license_data.get('activated_at'):
             if license_data['hardware_id'] != hardware_id:
                 return jsonify({"success": False, "error": "Mã này đã được kích hoạt trên máy khác"}), 403
-            
-            return jsonify({
-                "success": True,
-                "license_type": license_data.get('license_type', 'standard'),
-                "expires_at": license_data['expires_at'],
-                "activated_at": license_data['activated_at']
-            }), 200
+            else:
+                # Cho phép tái tạo license file nếu máy trùng
+                return jsonify({
+                    "success": True,
+                    "license_type": license_data.get('license_type', 'standard'),
+                    "expires_at": license_data['expires_at'],
+                    "activated_at": license_data['activated_at'],
+                    "message": "Đã kích hoạt trước đó"
+                }), 200
+
 
         # Kích hoạt mới
 # Xử lý expires_at dựa trên loại license
