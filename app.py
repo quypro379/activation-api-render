@@ -41,8 +41,10 @@ def activate_key():
         hardware_id = data.get('hardware_id')
 
         # Validate input
-        if not key or len(key) != 12 or not key.isdigit():
-            return jsonify({"success": False, "error": "Mã kích hoạt phải có đúng 12 chữ số"}), 400
+        # Validate input
+        if not key:
+            return jsonify({"success": False, "error": "Thiếu mã kích hoạt"}), 400
+
             
         if not hardware_id:
             return jsonify({"success": False, "error": "Thiếu hardware_id"}), 400
