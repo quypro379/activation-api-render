@@ -68,9 +68,14 @@ def activate_key():
             }), 200
 
         # Kích hoạt mới
-        expires_at = (datetime.fromisoformat(license_data['expires_at']) 
+        duration = license_data.get('duration_days')
+        if duration is None:
+            duration = 30  # Giá trị mặc định nếu thiếu
+        
+        expires_at = (datetime.fromisoformat(license_data['expires_at'])
                      if license_data.get('license_type') == 'lifetime'
-                     else now + timedelta(days=license_data['duration_days']))
+                     else now + timedelta(days=int(duration)))
+
 
         update_data = {
             'hardware_id': hardware_id,
