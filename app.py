@@ -138,6 +138,7 @@ def verify_key():
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
+@app.route('/time', methods=['GET'])
 def get_server_time():
     """
     Trả về giờ hiện tại của server (múi giờ Việt Nam).
@@ -156,3 +157,5 @@ def get_server_time():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
+
