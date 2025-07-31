@@ -132,21 +132,31 @@ def verify_key():
         now = datetime.now(pytz.UTC)
         expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
         
+        # Thêm log để debug
+        logger.debug(f"Thời gian hiện tại: {now}, Thời gian hết hạn: {expires_at}")
+        
         if expires_at < now:
-            return jsonify({"success": False, "error": "License đã hết hạn"}), 403
+            logger.warning(f"License hết hạn: {expires_at} < {now}")
+            return jsonify({
+                "success": False,
+                "error": "License đã hết hạn",
+                "expired": True,  # Thêm trường này để client biết là do hết hạn
+                "server_time": now.isoformat(),
+                "expires_at": license_data['expires_at']
+            }), 403
 
         return jsonify({
             "success": True,
-            "valid": True,  # Thêm trường này để client kiểm tra
+            "valid": True,
             "license_type": license_data.get('license_type', 'standard'),
             "expires_at": license_data['expires_at'],
-            "activated_at": license_data['activated_at']
+            "activated_at": license_data['activated_at'],
+            "server_time": now.isoformat()  # Trả về thời gian server để client so sánh
         }), 200
 
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
-@app.route('/time', methods=['GET'])
 def get_server_time():
     """
     Trả về giờ hiện tại của server (múi giờ Việt Nam).
