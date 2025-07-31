@@ -18,6 +18,9 @@ cred = credentials.Certificate("serviceAccountKey.json")
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
+# Múi giờ Việt Nam
+tz_vn = pytz.timezone("Asia/Ho_Chi_Minh")
+
 def get_license_doc(key):
     """Lấy document license từ Firestore"""
     doc_ref = db.collection('licenses').document(key)
@@ -40,12 +43,8 @@ def activate_key():
         key = data.get('key')
         hardware_id = data.get('hardware_id')
 
-        # Validate input
-        # Validate input
         if not key:
             return jsonify({"success": False, "error": "Thiếu mã kích hoạt"}), 400
-
-            
         if not hardware_id:
             return jsonify({"success": False, "error": "Thiếu hardware_id"}), 400
 
@@ -53,35 +52,34 @@ def activate_key():
         if not license_data:
             return jsonify({"success": False, "error": "Mã kích hoạt không tồn tại"}), 404
 
-        now = datetime.now(pytz.UTC)
-        
+        now = datetime.now(tz_vn)
+
         # License đã kích hoạt trước đó
         if license_data.get('activated_at'):
             if license_data['hardware_id'] != hardware_id:
                 return jsonify({"success": False, "error": "Mã này đã được kích hoạt trên máy khác"}), 403
             else:
                 # Cho phép tái tạo license file nếu máy trùng
+                activated_at = datetime.fromisoformat(license_data['activated_at']).astimezone(tz_vn)
+                expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
+
                 return jsonify({
                     "success": True,
                     "license_type": license_data.get('license_type', 'standard'),
-                    "expires_at": license_data['expires_at'],
-                    "activated_at": license_data['activated_at'],
+                    "expires_at": expires_at.isoformat(),
+                    "activated_at": activated_at.isoformat(),
                     "message": "Đã kích hoạt trước đó"
                 }), 200
 
-
         # Kích hoạt mới
-# Xử lý expires_at dựa trên loại license
         if license_data.get('license_type') == 'lifetime':
-            expires_at = datetime.fromisoformat(license_data['expires_at'])
+            expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
         else:
             try:
-                duration_days = int(license_data.get('duration_days', 30))  # mặc định 30 ngày nếu thiếu
+                duration_days = int(license_data.get('duration_days', 30))
             except ValueError:
                 duration_days = 30
             expires_at = now + timedelta(days=duration_days)
-
-
 
         update_data = {
             'hardware_id': hardware_id,
@@ -89,9 +87,9 @@ def activate_key():
             'expires_at': expires_at.isoformat()
         }
         doc_ref.update(update_data)
-        
+
         logger.info(f"Kích hoạt thành công: {key}")
-        
+
         return jsonify({
             "success": True,
             "license_type": license_data.get('license_type', 'standard'),
@@ -121,61 +119,49 @@ def verify_key():
         if not license_data:
             return jsonify({"success": False, "error": "Key không hợp lệ"}), 404
 
-        # Kiểm tra trạng thái kích hoạt
         if not license_data.get('activated_at'):
             return jsonify({"success": False, "error": "License chưa được kích hoạt"}), 403
 
-        # Kiểm tra hardware_id
         if license_data.get('hardware_id') != hardware_id:
             return jsonify({"success": False, "error": "Key đã được sử dụng trên thiết bị khác"}), 403
 
-        # Sử dụng múi giờ Việt Nam (UTC+7)
-        tz = pytz.timezone("Asia/Ho_Chi_Minh")
-        now = datetime.now(tz)
-        
-        # Đảm bảo expires_at được chuyển đổi sang UTC+7
-        expires_at = datetime.fromisoformat(license_data['expires_at'])
-        if expires_at.tzinfo is None:
-            expires_at = tz.localize(expires_at)
-        else:
-            expires_at = expires_at.astimezone(tz)
-        
-        response_data = {
-            "success": True,
-            "valid": expires_at > now,
-            "license_type": license_data.get('license_type', 'standard'),
-            "expires_at": expires_at.isoformat(),
-            "activated_at": license_data['activated_at']
-        }
+        now = datetime.now(tz_vn)
+        expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
 
         if expires_at < now:
-            return jsonify({
-                **response_data,
-                "success": False,
-                "error": "License đã hết hạn"
-            }), 403
+            return jsonify({"success": False, "error": "License đã hết hạn"}), 403
 
-        return jsonify(response_data), 200
+        activated_at = datetime.fromisoformat(license_data['activated_at']).astimezone(tz_vn)
+
+        return jsonify({
+            "success": True,
+            "valid": True,
+            "license_type": license_data.get('license_type', 'standard'),
+            "expires_at": expires_at.isoformat(),
+            "activated_at": activated_at.isoformat()
+        }), 200
 
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
+
 @app.route('/time', methods=['GET'])
 def get_server_time():
     """
     Trả về giờ hiện tại của server (múi giờ Việt Nam).
-    Client dùng để xác minh thời gian thực.
+    Bao gồm ISO để client tính toán và chuỗi hiển thị đẹp.
     """
     try:
-        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
+        now = datetime.now(tz_vn)
         return jsonify({
             "success": True,
-            "server_time": now.isoformat()
+            "server_time_iso": now.isoformat(),
+            "server_time_display": now.strftime("%H:%M - %d/%m/%Y"),
+            "timezone": "+07:00"
         }), 200
     except Exception as e:
         logger.error(f"Lỗi khi trả về giờ server: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Không lấy được giờ server"}), 500
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
