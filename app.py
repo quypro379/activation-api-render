@@ -41,8 +41,10 @@ def activate_key():
         hardware_id = data.get('hardware_id')
 
         # Validate input
-        if not key or len(key) != 12 or not key.isdigit():
-            return jsonify({"success": False, "error": "Mã kích hoạt phải có đúng 12 chữ số"}), 400
+        # Validate input
+        if not key:
+            return jsonify({"success": False, "error": "Thiếu mã kích hoạt"}), 400
+
             
         if not hardware_id:
             return jsonify({"success": False, "error": "Thiếu hardware_id"}), 400
@@ -57,18 +59,29 @@ def activate_key():
         if license_data.get('activated_at'):
             if license_data['hardware_id'] != hardware_id:
                 return jsonify({"success": False, "error": "Mã này đã được kích hoạt trên máy khác"}), 403
-            
-            return jsonify({
-                "success": True,
-                "license_type": license_data.get('license_type', 'standard'),
-                "expires_at": license_data['expires_at'],
-                "activated_at": license_data['activated_at']
-            }), 200
+            else:
+                # Cho phép tái tạo license file nếu máy trùng
+                return jsonify({
+                    "success": True,
+                    "license_type": license_data.get('license_type', 'standard'),
+                    "expires_at": license_data['expires_at'],
+                    "activated_at": license_data['activated_at'],
+                    "message": "Đã kích hoạt trước đó"
+                }), 200
+
 
         # Kích hoạt mới
-        expires_at = (datetime.fromisoformat(license_data['expires_at']) 
-                     if license_data.get('license_type') == 'lifetime'
-                     else now + timedelta(days=license_data['duration_days']))
+# Xử lý expires_at dựa trên loại license
+        if license_data.get('license_type') == 'lifetime':
+            expires_at = datetime.fromisoformat(license_data['expires_at'])
+        else:
+            try:
+                duration_days = int(license_data.get('duration_days', 30))  # mặc định 30 ngày nếu thiếu
+            except ValueError:
+                duration_days = 30
+            expires_at = now + timedelta(days=duration_days)
+
+
 
         update_data = {
             'hardware_id': hardware_id,
@@ -124,6 +137,7 @@ def verify_key():
 
         return jsonify({
             "success": True,
+            "valid": True,  # Thêm trường này để client kiểm tra
             "license_type": license_data.get('license_type', 'standard'),
             "expires_at": license_data['expires_at'],
             "activated_at": license_data['activated_at']
@@ -132,6 +146,23 @@ def verify_key():
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
+@app.route('/time', methods=['GET'])
+def get_server_time():
+    """
+    Trả về giờ hiện tại của server theo múi giờ Việt Nam (UTC+7)
+    Định dạng: HH:MM - dd/MM/yyyy
+    """
+    try:
+        tz_vn = pytz.timezone("Asia/Ho_Chi_Minh")
+        now = datetime.now(tz_vn)
+        formatted_time = now.strftime("%H:%M - %d/%m/%Y")
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+        return jsonify({
+            "success": True,
+            "server_time": formatted_time,
+            "timezone": "+07:00"
+        }), 200
+    except Exception as e:
+        logger.error(f"Lỗi khi trả về giờ server: {str(e)}", exc_info=True)
+        return jsonify({"success": False, "error": "Không lấy được giờ server"}), 500
+
