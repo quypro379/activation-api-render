@@ -129,19 +129,33 @@ def verify_key():
         if license_data.get('hardware_id') != hardware_id:
             return jsonify({"success": False, "error": "Key đã được sử dụng trên thiết bị khác"}), 403
 
-        now = datetime.now(pytz.UTC)
-        expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
+        # Sử dụng múi giờ Việt Nam (UTC+7)
+        tz = pytz.timezone("Asia/Ho_Chi_Minh")
+        now = datetime.now(tz)
         
-        if expires_at < now:
-            return jsonify({"success": False, "error": "License đã hết hạn"}), 403
-
-        return jsonify({
+        # Đảm bảo expires_at được chuyển đổi sang UTC+7
+        expires_at = datetime.fromisoformat(license_data['expires_at'])
+        if expires_at.tzinfo is None:
+            expires_at = tz.localize(expires_at)
+        else:
+            expires_at = expires_at.astimezone(tz)
+        
+        response_data = {
             "success": True,
-            "valid": True,  # Thêm trường này để client kiểm tra
+            "valid": expires_at > now,
             "license_type": license_data.get('license_type', 'standard'),
-            "expires_at": license_data['expires_at'],
+            "expires_at": expires_at.isoformat(),
             "activated_at": license_data['activated_at']
-        }), 200
+        }
+
+        if expires_at < now:
+            return jsonify({
+                **response_data,
+                "success": False,
+                "error": "License đã hết hạn"
+            }), 403
+
+        return jsonify(response_data), 200
 
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
