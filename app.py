@@ -149,20 +149,19 @@ def verify_key():
 @app.route('/time', methods=['GET'])
 def get_server_time():
     """
-    Trả về giờ hiện tại của server theo múi giờ Việt Nam (UTC+7)
-    Định dạng: HH:MM - dd/MM/yyyy
+    Trả về giờ hiện tại của server (múi giờ Việt Nam).
+    Client dùng để xác minh thời gian thực.
     """
     try:
-        tz_vn = pytz.timezone("Asia/Ho_Chi_Minh")
-        now = datetime.now(tz_vn)
-        formatted_time = now.strftime("%H:%M - %d/%m/%Y")
-
+        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
         return jsonify({
             "success": True,
-            "server_time": formatted_time,
-            "timezone": "+07:00"
+            "server_time": now.isoformat()
         }), 200
     except Exception as e:
         logger.error(f"Lỗi khi trả về giờ server: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Không lấy được giờ server"}), 500
 
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
