@@ -129,7 +129,14 @@ def verify_key():
         expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
 
         if expires_at < now:
-            return jsonify({"success": False, "error": "License đã hết hạn"}), 403
+            return jsonify({
+                "success": False,
+                "error": "License đã hết hạn",
+                "expires_at": expires_at.isoformat(),
+                "activated_at": activated_at.isoformat(),
+                "license_type": license_data.get('license_type', 'standard')
+            }), 403
+
 
         activated_at = datetime.fromisoformat(license_data['activated_at']).astimezone(tz_vn)
 
