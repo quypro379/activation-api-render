@@ -106,18 +106,10 @@ def activate_key():
 @app.route('/verify', methods=['POST'])
 @cross_origin()
 def verify_key():
-    """
-    Xác minh license và trả về trạng thái hợp lệ hay không.
-
-    Request JSON:
-    {
-        "key": "<license_key>",
-        "hardware_id": "<unique_hardware_id>"
-    }
-    """
+    """Endpoint kiểm tra license định kỳ"""
     try:
         data = request.json
-        logger.debug(f"[VERIFY] Request nhận được: {data}")
+        logger.debug(f"Verify request: {data}")
 
         key = data.get('key')
         hardware_id = data.get('hardware_id')
@@ -137,34 +129,22 @@ def verify_key():
         if license_data.get('hardware_id') != hardware_id:
             return jsonify({"success": False, "error": "Key đã được sử dụng trên thiết bị khác"}), 403
 
-        # Kiểm tra hạn sử dụng
         now = datetime.now(pytz.UTC)
         expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
-
-        logger.debug(f"[VERIFY] Hiện tại: {now}, Hết hạn: {expires_at}")
-
+        
         if expires_at < now:
-            logger.warning(f"[VERIFY] License hết hạn: {expires_at} < {now}")
-            return jsonify({
-                "success": False,
-                "error": "License đã hết hạn",
-                "expired": True,
-                "server_time": now.isoformat(),
-                "expires_at": license_data['expires_at']
-            }), 403
+            return jsonify({"success": False, "error": "License đã hết hạn"}), 403
 
-        # Trả về kết quả hợp lệ
         return jsonify({
             "success": True,
-            "valid": True,
+            "valid": True,  # Thêm trường này để client kiểm tra
             "license_type": license_data.get('license_type', 'standard'),
             "expires_at": license_data['expires_at'],
-            "activated_at": license_data['activated_at'],
-            "server_time": now.isoformat()
+            "activated_at": license_data['activated_at']
         }), 200
 
     except Exception as e:
-        logger.error(f"[VERIFY] Lỗi: {str(e)}", exc_info=True)
+        logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
 @app.route('/time', methods=['GET'])
 def get_server_time():
