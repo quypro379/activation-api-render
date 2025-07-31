@@ -29,78 +29,59 @@ def wakeup():
     """Endpoint đánh thức server"""
     return jsonify({"status": "active"}), 200
 
-@app.route('/activate', methods=['POST'])
+@app.route('/verify', methods=['POST'])
 @cross_origin()
-def activate_key():
-    """Endpoint kích hoạt license"""
+def verify_key():
+    """Endpoint kiểm tra license định kỳ"""
     try:
         data = request.json
-        logger.debug(f"Activate request: {data}")
+        logger.debug(f"Verify request: {data}")
 
         key = data.get('key')
         hardware_id = data.get('hardware_id')
 
-        # Validate input
-        # Validate input
-        if not key:
-            return jsonify({"success": False, "error": "Thiếu mã kích hoạt"}), 400
+        if not key or not hardware_id:
+            return jsonify({"success": False, "error": "Thiếu thông tin key hoặc hardware_id"}), 400
 
-            
-        if not hardware_id:
-            return jsonify({"success": False, "error": "Thiếu hardware_id"}), 400
-
-        doc_ref, license_data = get_license_doc(key)
+        _, license_data = get_license_doc(key)
         if not license_data:
-            return jsonify({"success": False, "error": "Mã kích hoạt không tồn tại"}), 404
+            return jsonify({"success": False, "error": "Key không hợp lệ"}), 404
+
+        # Kiểm tra trạng thái kích hoạt
+        if not license_data.get('activated_at'):
+            return jsonify({"success": False, "error": "License chưa được kích hoạt"}), 403
+
+        # Kiểm tra hardware_id
+        if license_data.get('hardware_id') != hardware_id:
+            return jsonify({"success": False, "error": "Key đã được sử dụng trên thiết bị khác"}), 403
 
         now = datetime.now(pytz.UTC)
+        expires_at = datetime.fromisoformat(license_data['expires_at']).replace(tzinfo=pytz.UTC)
         
-        # License đã kích hoạt trước đó
-        if license_data.get('activated_at'):
-            if license_data['hardware_id'] != hardware_id:
-                return jsonify({"success": False, "error": "Mã này đã được kích hoạt trên máy khác"}), 403
-            else:
-                # Cho phép tái tạo license file nếu máy trùng
-                return jsonify({
-                    "success": True,
-                    "license_type": license_data.get('license_type', 'standard'),
-                    "expires_at": license_data['expires_at'],
-                    "activated_at": license_data['activated_at'],
-                    "message": "Đã kích hoạt trước đó"
-                }), 200
-
-
-        # Kích hoạt mới
-# Xử lý expires_at dựa trên loại license
-        if license_data.get('license_type') == 'lifetime':
-            expires_at = datetime.fromisoformat(license_data['expires_at'])
-        else:
-            try:
-                duration_days = int(license_data.get('duration_days', 30))  # mặc định 30 ngày nếu thiếu
-            except ValueError:
-                duration_days = 30
-            expires_at = now + timedelta(days=duration_days)
-
-
-
-        update_data = {
-            'hardware_id': hardware_id,
-            'activated_at': now.isoformat(),
-            'expires_at': expires_at.isoformat()
-        }
-        doc_ref.update(update_data)
+        # Thêm log để debug
+        logger.debug(f"Thời gian hiện tại: {now}, Thời gian hết hạn: {expires_at}")
         
-        logger.info(f"Kích hoạt thành công: {key}")
-        
+        if expires_at < now:
+            logger.warning(f"License hết hạn: {expires_at} < {now}")
+            return jsonify({
+                "success": False,
+                "error": "License đã hết hạn",
+                "expired": True,  # Thêm trường này để client biết là do hết hạn
+                "server_time": now.isoformat(),
+                "expires_at": license_data['expires_at']
+            }), 403
+
         return jsonify({
             "success": True,
+            "valid": True,
             "license_type": license_data.get('license_type', 'standard'),
-            "expires_at": expires_at.isoformat(),
-            "activated_at": now.isoformat()
+            "expires_at": license_data['expires_at'],
+            "activated_at": license_data['activated_at'],
+            "server_time": now.isoformat()  # Trả về thời gian server để client so sánh
         }), 200
 
     except Exception as e:
-        logger.error(f"Lỗi activate: {str(e)}", exc_info=True)
+        logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
 
 @app.route('/verify', methods=['POST'])
