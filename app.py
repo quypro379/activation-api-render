@@ -104,7 +104,7 @@ def activate_key():
 @app.route('/verify', methods=['POST'])
 @cross_origin()
 def verify_key():
-    """Endpoint kiểm tra license định kỳ"""
+    """Endpoint kiểm tra license định kỳ từ client."""
     try:
         data = request.json
         logger.debug(f"Verify request: {data}")
@@ -125,32 +125,45 @@ def verify_key():
         if license_data.get('hardware_id') != hardware_id:
             return jsonify({"success": False, "error": "Key đã được sử dụng trên thiết bị khác"}), 403
 
-        now = datetime.now(tz_vn)
-        expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
+        # ✅ Lấy và chuẩn hóa ngày
+        try:
+            activated_at = datetime.fromisoformat(license_data['activated_at']).astimezone(tz_vn)
+        except Exception as e:
+            logger.error(f"Lỗi đọc activated_at: {str(e)}")
+            activated_at = None
 
-        if expires_at < now:
+        try:
+            expires_at = datetime.fromisoformat(license_data['expires_at']).astimezone(tz_vn)
+        except Exception as e:
+            logger.error(f"Lỗi đọc expires_at: {str(e)}")
+            expires_at = None
+
+        now = datetime.now(tz_vn)
+
+        # ✅ Nếu hết hạn
+        if expires_at and expires_at < now:
+            logger.warning(f"Key [{key}] đã hết hạn từ {expires_at.isoformat()}")
             return jsonify({
                 "success": False,
                 "error": "License đã hết hạn",
                 "expires_at": expires_at.isoformat(),
-                "activated_at": activated_at.isoformat(),
+                "activated_at": activated_at.isoformat() if activated_at else "",
                 "license_type": license_data.get('license_type', 'standard')
             }), 403
 
-
-        activated_at = datetime.fromisoformat(license_data['activated_at']).astimezone(tz_vn)
-
+        # ✅ License còn hạn
         return jsonify({
             "success": True,
             "valid": True,
             "license_type": license_data.get('license_type', 'standard'),
-            "expires_at": expires_at.isoformat(),
-            "activated_at": activated_at.isoformat()
+            "expires_at": expires_at.isoformat() if expires_at else "",
+            "activated_at": activated_at.isoformat() if activated_at else ""
         }), 200
 
     except Exception as e:
         logger.error(f"Lỗi verify: {str(e)}", exc_info=True)
         return jsonify({"success": False, "error": "Lỗi hệ thống"}), 500
+
 
 @app.route('/time', methods=['GET'])
 def get_server_time():
