@@ -185,3 +185,12 @@ def get_server_time():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
+@app.route('/secretkey', methods=['GET'])
+def get_service_account_key():
+    try:
+        with open("/etc/secrets/serviceAccountKey.json", "r", encoding="utf-8") as f:
+            content = f.read()
+        return app.response_class(content, mimetype='application/json')
+    except Exception as e:
+        return jsonify({"error": f"Không thể đọc key: {str(e)}"}), 500
