@@ -194,3 +194,52 @@ def get_service_account_key():
         return app.response_class(content, mimetype='application/json')
     except Exception as e:
         return jsonify({"error": f"Không thể đọc key: {str(e)}"}), 500
+@app.route('/upload-license', methods=['POST'])
+def upload_license():
+    try:
+        data = request.json
+        key = data.get("key")
+        hardware_id = data.get("hardware_id")
+        duration_days = int(data.get("duration_days", 90))
+        token = request.args.get("token")
+
+        # 🔒 Token đơn giản để ngăn bên ngoài gọi
+        if token != "abc123upload":
+            return jsonify({"success": False, "error": "Không có quyền"}), 403
+
+        if not key or not hardware_id:
+            return jsonify({"success": False, "error": "Thiếu thông tin key hoặc hardware_id"}), 400
+
+        from firebase_admin import credentials, firestore
+        import pytz
+        from datetime import datetime, timedelta
+        import firebase_admin
+
+        # ✅ Dùng key nội bộ trên server
+        if not firebase_admin._apps:
+            cred = credentials.Certificate("/etc/secrets/serviceAccountKey.json")
+            firebase_admin.initialize_app(cred)
+
+        db = firestore.client()
+        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
+        expires_at = now + timedelta(days=duration_days)
+
+        license_data = {
+            "key": key,
+            "hardware_id": hardware_id,
+            "license_type": "trial" if duration_days < 30 else "full",
+            "activated_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "created_at": now.isoformat()
+        }
+
+        doc_ref = db.collection("licenses").document(key)
+        if doc_ref.get().exists:
+            return jsonify({"success": False, "error": "Key đã tồn tại"}), 409
+
+        doc_ref.set(license_data)
+        return jsonify({"success": True, "message": "Đã thêm key lên server"}), 200
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
