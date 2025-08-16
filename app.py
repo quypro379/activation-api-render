@@ -195,51 +195,49 @@ def get_service_account_key():
     except Exception as e:
         return jsonify({"error": f"Không thể đọc key: {str(e)}"}), 500
 @app.route('/upload-license', methods=['POST'])
+@cross_origin()
 def upload_license():
     try:
-        data = request.json
+        # Lấy dữ liệu từ request body
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "Thiếu dữ liệu"}), 400
+
+        # Kiểm tra token
+        token = data.get("token")
+        if token != "abc123upload":
+            return jsonify({"success": False, "error": "Token không hợp lệ"}), 403
+
+        # Lấy các thông tin cần thiết
         key = data.get("key")
         hardware_id = data.get("hardware_id")
-        duration_days = int(data.get("duration_days", 90))
-        token = request.args.get("token")
-
-        # 🔒 Token đơn giản để ngăn bên ngoài gọi
-        if token != "abc123upload":
-            return jsonify({"success": False, "error": "Không có quyền"}), 403
+        duration_days = data.get("duration_days", 90)
 
         if not key or not hardware_id:
-            return jsonify({"success": False, "error": "Thiếu thông tin key hoặc hardware_id"}), 400
+            return jsonify({"success": False, "error": "Thiếu key hoặc hardware_id"}), 400
 
-        from firebase_admin import credentials, firestore
-        import pytz
-        from datetime import datetime, timedelta
-        import firebase_admin
-
-        # ✅ Dùng key nội bộ trên server
-        if not firebase_admin._apps:
-            cred = credentials.Certificate("/etc/secrets/serviceAccountKey.json")
-            firebase_admin.initialize_app(cred)
-
-        db = firestore.client()
-        now = datetime.now(pytz.timezone("Asia/Ho_Chi_Minh"))
-        expires_at = now + timedelta(days=duration_days)
+        # Tạo license mới
+        now = datetime.now(tz_vn)
+        expires_at = now + timedelta(days=int(duration_days))
 
         license_data = {
             "key": key,
             "hardware_id": hardware_id,
-            "license_type": "trial" if duration_days < 30 else "full",
+            "license_type": "trial",
             "activated_at": now.isoformat(),
             "expires_at": expires_at.isoformat(),
             "created_at": now.isoformat()
         }
 
+        # Lưu vào Firestore
         doc_ref = db.collection("licenses").document(key)
         if doc_ref.get().exists:
             return jsonify({"success": False, "error": "Key đã tồn tại"}), 409
 
         doc_ref.set(license_data)
-        return jsonify({"success": True, "message": "Đã thêm key lên server"}), 200
+        return jsonify({"success": True}), 200
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
 
